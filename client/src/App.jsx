@@ -1,8 +1,22 @@
 import {useEffect,useRef,useState} from 'react'; import {QRCodeSVG} from 'qrcode.react'; import {Wine,Copy,Users,Check,RefreshCw,SkipForward,Play} from 'lucide-react'; import {io} from 'socket.io-client';
-const endpoint=import.meta.env.VITE_SERVER_URL||'http://localhost:3001'; const saved=()=>JSON.parse(localStorage.getItem('spin-spill-player')||'null');
+// In development, Socket.IO connects to the same origin as the page (Vite's port 5173).
+// Vite proxies /socket.io/* requests to http://127.0.0.1:3001 internally, so the
+// browser never makes a cross-origin request and Codespaces never inserts a redirect.
+//
+// In production, set VITE_SERVER_URL to your deployed backend URL (e.g. https://my-api.railway.app).
+// Leave it unset (or empty) to keep using the same-origin proxy strategy.
+const endpoint = import.meta.env.VITE_SERVER_URL || undefined;
+const saved=()=>JSON.parse(localStorage.getItem('spin-spill-player')||'null');
 function Button({children,kind='',...props}){return <button className={`button ${kind}`} {...props}>{children}</button>};
 function App(){const socket=useRef();const [room,setRoom]=useState(null),[identity,setIdentity]=useState(saved),[name,setName]=useState(''),[code,setCode]=useState(new URLSearchParams(location.search).get('room')||''),[notice,setNotice]=useState('');
- useEffect(()=>{socket.current=io(endpoint);socket.current.on('room:update',setRoom);return()=>socket.current.disconnect()},[]);
+ useEffect(()=>{
+    // When endpoint is undefined, socket.io-client connects to window.location.origin
+    // (i.e. Vite's port 5173), which Vite proxies to the backend on port 3001.
+    // When endpoint is a URL string (production), it connects directly to that URL.
+    socket.current = endpoint ? io(endpoint) : io();
+    socket.current.on('room:update',setRoom);
+    return()=>socket.current.disconnect()
+  },[]);
  const call=(event,data={})=>new Promise(resolve=>socket.current.emit(event,{...data,code:room?.code,...identity},reply=>{if(!reply.ok)setNotice(reply.error);else {if(reply.room)setRoom(reply.room);resolve(reply);}}));
  const create=()=>socket.current.emit('room:create',{name},reply=>{if(!reply.ok)return setNotice(reply.error);save(reply)});const join=()=>socket.current.emit('room:join',{code,name,...(identity||{})},reply=>{if(!reply.ok)return setNotice(reply.error);save(reply)}); const save=reply=>{const who={playerId:reply.playerId,token:reply.token};localStorage.setItem('spin-spill-player',JSON.stringify(who));setIdentity(who);setRoom(reply.room);history.replaceState({},'',`?room=${reply.code}`)};
  if(!room)return <main className="landing"><div className="orb one"/><div className="orb two"/><section className="hero"><div className="brand"><Wine/> SPIN <i>&</i> SPILL</div><p className="eyebrow">REAL-TIME TRUTH OR DARE</p><h1>Gather your people.<br/>Let chaos begin.</h1><p className="lead">Spin a bottle, spill a secret, dare your friends. One room — every screen in sync.</p><div className="form card"><label>Your display name<input value={name} maxLength="24" onChange={e=>setName(e.target.value)} placeholder="What should we call you?"/></label><div className="actions"><Button onClick={create}><Play size={17}/> Create a room</Button></div><div className="divider">or join the party</div><div className="join"><input value={code} onChange={e=>setCode(e.target.value.toUpperCase())} placeholder="ROOM CODE"/><Button kind="secondary" onClick={join}>Join</Button></div>{notice&&<p className="error">{notice}</p>}</div></section></main>;
