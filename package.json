@@ -1,0 +1,1 @@
+{"name":"spin-and-spill","private":true,"version":"1.0.0","workspaces":["client","server"],"scripts":{"dev":"concurrently \"npm run dev -w server\" \"npm run dev -w client\"","build":"npm run build -w client","test":"npm run test -w server && npm run test -w client","lint":"node --check server/src/index.js && npm run lint -w client"},"devDependencies":{"concurrently":"^9.1.2"}}

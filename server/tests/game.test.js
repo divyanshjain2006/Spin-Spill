@@ -1,0 +1,2 @@
+import test from 'node:test'; import assert from 'node:assert/strict'; import * as game from '../src/services/game.js';
+test('a virtual spin creates a target and category selection',()=>{const room=game.createRoom('Host','t1','ABC123');room.players.push({id:'p2',name:'Friend',token:'t2',connected:true});const host=room.players[0];game.start(room,host);game.spin(room,host);assert.equal(room.phase,'CATEGORY_SELECTION');assert.ok(room.round.targetId);});
