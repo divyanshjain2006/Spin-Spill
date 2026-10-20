@@ -1,6 +1,8 @@
 import 'dotenv/config';
 import http from 'node:http';
 import crypto from 'node:crypto';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -12,23 +14,24 @@ import * as game from './services/game.js';
 
 const app = express();
 
+// Resolve the built React website from the repository root.
+// During local development Vite serves the frontend; after deployment,
+// Express serves these files so the frontend and Socket.IO share one URL.
+const currentDirectory = path.dirname(fileURLToPath(import.meta.url));
+const clientDistPath = path.resolve(currentDirectory, '../../client/dist');
+
 // ------------------------------------------------------------------
-// Trust the first proxy hop (GitHub Codespaces / Render / Railway).
+// Trust the first proxy hop (Render / other reverse proxies).
 // This lets Express read the real client IP from the X-Forwarded-For
-// header instead of seeing the proxy's IP.  Using `1` (a number) is
-// safer than `true` because it only trusts ONE hop, so rate-limiting
-// still works correctly and cannot be spoofed by arbitrary headers.
+// header instead of seeing the proxy's IP. Using 1 (a number) is safer
+// than true because it trusts only one hop.
 // ------------------------------------------------------------------
 app.set('trust proxy', 1);
 
 app.use(helmet({ crossOriginResourcePolicy: false }));
 
-// CORS: allow the configured CLIENT_URL in production.
-// In development the Vite proxy forwards requests from the same origin,
-// so the browser never sends a cross-origin request and this header is
-// not needed.  Keeping origin: true as the fallback is intentional for
-// local development convenience; tighten it for production by setting
-// CLIENT_URL to the actual frontend domain.
+// The deployed frontend and backend use the same origin. The fallback also
+// permits local development, where Vite proxies API and Socket.IO requests.
 const corsOptions = {
   origin: process.env.CLIENT_URL || true,
 };
@@ -37,7 +40,7 @@ app.use(express.json());
 app.use(rateLimit({ windowMs: 60_000, max: 150 }));
 
 // ------------------------------------------------------------------
-// In-memory room store + optional MongoDB persistence
+// In-memory room cache + optional MongoDB persistence
 // ------------------------------------------------------------------
 const rooms = new Map();
 const code = () =>
@@ -48,14 +51,21 @@ const code = () =>
 async function save(room) {
   rooms.set(room.code, room);
   if (mongoose.connection.readyState === 1)
-    await RoomModel.findOneAndUpdate({ code: room.code }, { state: room }, { upsert: true });
+    await RoomModel.findOneAndUpdate(
+      { code: room.code },
+      { state: room },
+      { upsert: true }
+    );
 }
 
 async function find(roomCode) {
   if (rooms.has(roomCode)) return rooms.get(roomCode);
   if (mongoose.connection.readyState === 1) {
     const record = await RoomModel.findOne({ code: roomCode });
-    if (record) { rooms.set(roomCode, record.state); return record.state; }
+    if (record) {
+      rooms.set(roomCode, record.state);
+      return record.state;
+    }
   }
   return null;
 }
@@ -70,13 +80,28 @@ const cleanName = name => {
 // REST endpoints
 // ------------------------------------------------------------------
 app.get('/api/health', (_, res) =>
-  res.json({ ok: true, database: mongoose.connection.readyState === 1 ? 'connected' : 'memory fallback' })
+  res.json({
+    ok: true,
+    database: mongoose.connection.readyState === 1 ? 'connected' : 'memory fallback',
+  })
 );
 
 app.get('/api/rooms/:code', async (req, res) => {
   const room = await find(req.params.code.toUpperCase());
   if (!room) return res.status(404).json({ error: 'Room not found' });
   res.json(game.publicRoom(room));
+});
+
+// Serve the built Vite/React frontend in production.
+// API routes above keep their API responses; other browser paths load the app.
+app.use(express.static(clientDistPath));
+app.get('*', (req, res, next) => {
+  if (req.path.startsWith('/api/') || req.path.startsWith('/socket.io/')) {
+    return next();
+  }
+  res.sendFile(path.join(clientDistPath, 'index.html'), error => {
+    if (error) next(error);
+  });
 });
 
 // ------------------------------------------------------------------
@@ -105,8 +130,16 @@ io.on('connection', socket => {
       socket.join(`room:${roomCode}`);
       socket.join(`player:${room.players[0].id}`);
       socket.data.member = { code: roomCode, id: room.players[0].id };
-      callback({ ok: true, code: roomCode, playerId: room.players[0].id, token, room: game.publicRoom(room, room.players[0].id) });
-    } catch (e) { fail(callback, e); }
+      callback({
+        ok: true,
+        code: roomCode,
+        playerId: room.players[0].id,
+        token,
+        room: game.publicRoom(room, room.players[0].id),
+      });
+    } catch (e) {
+      fail(callback, e);
+    }
   });
 
   socket.on('room:join', async ({ code: raw, name, playerId, token }, callback) => {
@@ -114,23 +147,43 @@ io.on('connection', socket => {
       const room = await find(raw?.toUpperCase());
       if (!room) throw Error('Room not found');
       let player;
-      if (playerId && token) player = room.players.find(p => p.id === playerId && p.token === token);
+      if (playerId && token)
+        player = room.players.find(p => p.id === playerId && p.token === token);
+
       if (player) {
         player.connected = true;
       } else {
-        if (room.phase !== 'LOBBY' && !room.settings.allowLateJoin) throw Error('This room is not accepting new players');
+        if (room.phase !== 'LOBBY' && !room.settings.allowLateJoin)
+          throw Error('This room is not accepting new players');
         const displayName = cleanName(name);
-        if (room.players.some(p => p.name.toLowerCase() === displayName.toLowerCase())) throw Error('That display name is already in use');
-        player = { id: game.id(), name: displayName, token: crypto.randomUUID(), connected: true, isHost: false, joinedAt: Date.now() };
+        if (room.players.some(p => p.name.toLowerCase() === displayName.toLowerCase()))
+          throw Error('That display name is already in use');
+        player = {
+          id: game.id(),
+          name: displayName,
+          token: crypto.randomUUID(),
+          connected: true,
+          isHost: false,
+          joinedAt: Date.now(),
+        };
         room.players.push(player);
       }
+
       socket.join(`room:${room.code}`);
       socket.join(`player:${player.id}`);
       socket.data.member = { code: room.code, id: player.id };
       await save(room);
       emit(room);
-      callback({ ok: true, code: room.code, playerId: player.id, token: player.token, room: game.publicRoom(room, player.id) });
-    } catch (e) { fail(callback, e); }
+      callback({
+        ok: true,
+        code: room.code,
+        playerId: player.id,
+        token: player.token,
+        room: game.publicRoom(room, player.id),
+      });
+    } catch (e) {
+      fail(callback, e);
+    }
   });
 
   const action = (event, fn) => socket.on(event, async (data, callback) => {
@@ -142,7 +195,9 @@ io.on('connection', socket => {
       await save(room);
       emit(room);
       callback?.({ ok: true, result, room: game.publicRoom(room, p.id) });
-    } catch (e) { fail(callback, e); }
+    } catch (e) {
+      fail(callback, e);
+    }
   });
 
   action('game:start',    (r, p)    => game.start(r, p));
@@ -163,7 +218,11 @@ io.on('connection', socket => {
     if (!member) return;
     const room = await find(member.code);
     const p = room?.players.find(x => x.id === member.id);
-    if (p) { p.connected = false; await save(room); emit(room); }
+    if (p) {
+      p.connected = false;
+      await save(room);
+      emit(room);
+    }
   });
 });
 
@@ -172,13 +231,29 @@ io.on('connection', socket => {
 // ------------------------------------------------------------------
 const port = Number(process.env.PORT || 3001);
 
-if (process.env.MONGODB_URI)
-  mongoose.connect(process.env.MONGODB_URI)
-    .then(() => console.log('MongoDB connected'))
-    .catch(() => console.warn('MongoDB unavailable; using local memory for this session.'));
+async function startServer() {
+  // Wait for MongoDB before accepting requests when a connection string is
+  // configured. If it fails, log the issue clearly and keep local dev usable.
+  if (process.env.MONGODB_URI) {
+    try {
+      await mongoose.connect(process.env.MONGODB_URI, {
+        serverSelectionTimeoutMS: 10_000,
+      });
+      console.log('MongoDB connected');
+    } catch (error) {
+      console.warn('MongoDB unavailable; rooms will use memory for this run:', error.message);
+    }
+  } else {
+    console.warn('MONGODB_URI is not set; rooms will be stored in memory only.');
+  }
 
-if (process.env.NODE_ENV !== 'test')
-  server.listen(port, () => console.log(`Spin & Spill server listening on ${port}`));
+  server.listen(port, '0.0.0.0', () => {
+    console.log(`Spin & Spill server listening on port ${port}`);
+  });
+}
+
+if (process.env.NODE_ENV !== 'test') {
+  startServer();
+}
 
 export { app, server };
-
