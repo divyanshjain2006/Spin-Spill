@@ -18,7 +18,7 @@ This repository includes a `render.yaml` Blueprint. The deployed app serves the 
 
 1. Create a MongoDB Atlas database if you do not already have one.
 2. In Atlas, create a database user and copy the application connection string. Replace its username, password, and database name placeholders. Do not commit this URI to GitHub.
-3. In Atlas Network Access, allow connections from Render. For a quick hobby deployment, allowing `0.0.0.0/0` is the simplest setup because free Render services do not have a single fixed outbound IP. Use a strong, dedicated database password and keep the URI private.
+3. In Atlas Network Access, allow connections from your Render service's outbound IP ranges. In Render, open the service after deployment, select **Connect → Outbound**, and copy the listed IP ranges into Atlas Network Access. This is safer than `0.0.0.0/0`, which allows connection attempts from anywhere. Use a dedicated database user with only the permissions the app needs, a strong password, and keep the URI private.
 4. Open the Render Dashboard and choose **New → Blueprint**.
 5. Connect the GitHub repository `divyanshjain2006/Spin-Spill` and select its `main` branch.
 6. Render reads `render.yaml`. When prompted for `MONGODB_URI`, paste the Atlas URI through Render's environment-variable form. Do not put it in this file.
