@@ -12,7 +12,7 @@ Real-time Truth or Dare built with React, Express, Socket.IO, MongoDB/Mongoose, 
 
 The authoritative gameplay rules are in `server/src/services/game.js`; Socket.IO events and Express setup are in `server/src/index.js`; built-in prompts are in `server/src/data/prompts.js`.
 
-## Deploy the complete app on Render
+## Deploy the complete app on Render (https://spin-and-spill.onrender.com)
 
 This repository includes a `render.yaml` Blueprint. The deployed app serves the built React frontend and the Express/Socket.IO backend from the **same public HTTPS URL**. This avoids needing a separate GitHub Pages frontend URL or configuring a different Socket.IO origin.
 
