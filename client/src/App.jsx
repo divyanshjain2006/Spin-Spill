@@ -484,11 +484,6 @@ function RevealPhase({ room, me, target, call, act, busy }) {
 
           {/* Task text */}
           <div className="task-text">{task.text}</div>
-
-          {/* Submitter attribution */}
-          {isFriendTask && task.authorName && (
-            <div className="task-author">Submitted by {task.authorName}</div>
-          )}
         </div>
       )}
 
@@ -508,7 +503,7 @@ function RevealPhase({ room, me, target, call, act, busy }) {
             onClick={() => act(() => call('task:resolve', { action: 'accept' }))}
             loading={busy}
           >
-            <Check size={15} /> Complete task
+            <Check size={15} /> Accept task
           </Button>
           <Button
             kind="secondary"
@@ -522,7 +517,7 @@ function RevealPhase({ room, me, target, call, act, busy }) {
             onClick={() => act(() => call('task:resolve', { action: 'skip' }))}
             loading={busy}
           >
-            <SkipForward size={15} /> Skip
+            <SkipForward size={15} /> Skip task
           </Button>
         </div>
       )}

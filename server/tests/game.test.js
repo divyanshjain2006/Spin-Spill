@@ -266,3 +266,44 @@ test('a virtual spin creates a target and advances to category selection', () =>
   assert.equal(room.phase, 'CATEGORY_SELECTION');
   assert.ok(room.round.targetId);
 });
+
+// 14. Privacy: publicRoom strips authorId and authorName from suggestions and round tasks
+test('publicRoom strips authorId and authorName from suggestions and round tasks', () => {
+  const room = makeRoom('PRIV01');
+  const host = room.players[0];
+  const friend = room.players[1];
+  startRound(room, friend.id, 'TRUTH');
+  addSuggestion(room, host, 'A secret question', 'TRUTH');
+
+  // Verify internal record preserves author for moderation/internal tracking
+  assert.equal(room.suggestions[0].authorId, host.id);
+  assert.equal(room.suggestions[0].authorName, host.name);
+
+  // Draw task so it appears in room.round.tasks
+  game.draw(room, friend);
+  assert.equal(room.round.tasks[0].authorId, host.id);
+  assert.equal(room.round.tasks[0].authorName, host.name);
+
+  // Check public serialized state for ordinary players
+  const publicState = game.publicRoom(room, friend.id);
+  assert.equal(publicState.suggestions[0].authorId, undefined, 'authorId must not leak in suggestions');
+  assert.equal(publicState.suggestions[0].authorName, undefined, 'authorName must not leak in suggestions');
+  assert.equal(publicState.round.tasks[0].authorId, undefined, 'authorId must not leak in round tasks');
+  assert.equal(publicState.round.tasks[0].authorName, undefined, 'authorName must not leak in round tasks');
+});
+
+// 15. Privacy: draw() returns sanitized task without authorId or authorName
+test('draw() returns a sanitized task without author fields', () => {
+  const room = makeRoom('PRIV02');
+  const host = room.players[0];
+  const friend = room.players[1];
+  startRound(room, friend.id, 'DARE');
+  addSuggestion(room, host, 'Secret dare task', 'DARE');
+
+  const drawnTask = game.draw(room, friend);
+  assert.equal(drawnTask.text, 'Secret dare task');
+  assert.equal(drawnTask.source, 'SUGGESTION');
+  assert.equal(drawnTask.authorId, undefined, 'drawn task must not include authorId');
+  assert.equal(drawnTask.authorName, undefined, 'drawn task must not include authorName');
+});
+

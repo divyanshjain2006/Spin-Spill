@@ -43,16 +43,45 @@ export const createRoom = (name, token, code) => {
   };
 };
 
-// Return a sanitised view of the room (strip tokens; hide task text from target
-// until it is drawn).
+// ─── Room serialization & privacy ──────────────────────────────────────────
+
+/**
+ * Sanitize a task for public client consumption.
+ * Removes author identifying fields (authorId, authorName) to protect submitter privacy.
+ */
+export function sanitizeTask(task) {
+  if (!task) return null;
+  const { authorId, authorName, ...publicTask } = task;
+  return publicTask;
+}
+
+/**
+ * Sanitize a suggestion for public client consumption.
+ * Removes author identifying fields (authorId, authorName) and hides suggestion
+ * text from the target player until drawn.
+ */
+export function sanitizeSuggestion(suggestion, viewerId, targetId) {
+  if (!suggestion) return null;
+  const { authorId, authorName, ...publicSuggestion } = suggestion;
+  return {
+    ...publicSuggestion,
+    text: viewerId && viewerId === targetId ? 'Suggestion hidden until draw' : suggestion.text,
+  };
+}
+
+// Return a sanitised view of the room (strip tokens; strip authorId and authorName
+// from suggestions and tasks; hide task text from target until it is drawn).
 export function publicRoom(room, viewer) {
+  const targetId = room.round?.targetId;
+
   return {
     ...room,
     players: room.players.map(({ token, ...p }) => p),
-    suggestions: room.suggestions.map(s => ({
-      ...s,
-      text: viewer === room.round?.targetId ? 'Suggestion hidden until draw' : s.text,
-    })),
+    suggestions: room.suggestions.map(s => sanitizeSuggestion(s, viewer, targetId)),
+    round: room.round ? {
+      ...room.round,
+      tasks: room.round.tasks.map(t => sanitizeTask(t)),
+    } : undefined,
   };
 }
 
@@ -260,7 +289,7 @@ export function draw(room, p) {
   room.round.currentTaskId = task.id;
   room.round.taskHistory.push(task.id);
   room.phase = 'TASK_REVEALED';
-  return task;
+  return sanitizeTask(task);
 }
 
 /**
