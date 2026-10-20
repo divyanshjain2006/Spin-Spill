@@ -30,10 +30,14 @@ app.set('trust proxy', 1);
 
 app.use(helmet({ crossOriginResourcePolicy: false }));
 
-// The deployed frontend and backend use the same origin. The fallback also
-// permits local development, where Vite proxies API and Socket.IO requests.
+// Production serves the frontend and backend from the same origin, so CORS
+// headers are not needed by default. Set CLIENT_URL only when you intentionally
+// host the frontend on a different origin (Vite's local proxy is same-origin).
+const configuredOrigins = process.env.CLIENT_URL
+  ? process.env.CLIENT_URL.split(',').map(origin => origin.trim()).filter(Boolean)
+  : false;
 const corsOptions = {
-  origin: process.env.CLIENT_URL || true,
+  origin: configuredOrigins,
 };
 app.use(cors(corsOptions));
 app.use(express.json());
