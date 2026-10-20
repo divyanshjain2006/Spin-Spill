@@ -3,6 +3,7 @@ services:
     name: spin-and-spill
     runtime: node
     plan: free
+    region: singapore
     buildCommand: npm ci && npm run build
     startCommand: npm start
     healthCheckPath: /api/health
